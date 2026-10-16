@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="BackTester.Core/BackTester.Core.csproj" />
+  <Project Path="BackTester.Tests/BackTester.Tests.csproj" />
+  <Project Path="BackTester.Web/BackTester.Web.csproj" />
+</Solution>
