@@ -1,0 +1,76 @@
+@page "/results"
+@using ApexCharts
+
+<MudText Typo="Typo.h4" Class="mb-4">Résultats (données factices)</MudText>
+
+<MudGrid Class="mb-4">
+    @foreach (var m in _metrics)
+    {
+        <MudItem xs="6" md="3">
+            <MudPaper Class="pa-3">
+                <MudText Typo="Typo.caption">@m.Label</MudText>
+                <MudText Typo="Typo.h6">@m.Value</MudText>
+            </MudPaper>
+        </MudItem>
+    }
+</MudGrid>
+
+<MudPaper Class="pa-4 mb-4">
+    <ApexChart TItem="PointValeur" Title="Valeur du portefeuille" Height="350">
+        <ApexPointSeries TItem="PointValeur"
+                         Items="_courbe"
+                         Name="Stratégie"
+                         SeriesType="SeriesType.Line"
+                         XValue="p => p.Date"
+                         YValue="p => p.Valeur" />
+    </ApexChart>
+</MudPaper>
+
+<MudTable Items="_trades" Dense="true" Hover="true">
+    <HeaderContent>
+        <MudTh>Date</MudTh>
+        <MudTh>Type</MudTh>
+        <MudTh>Prix</MudTh>
+        <MudTh>Quantité</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Date">@context.Date</MudTd>
+        <MudTd DataLabel="Type">@context.Type</MudTd>
+        <MudTd DataLabel="Prix">@context.Prix.ToString("F2")</MudTd>
+        <MudTd DataLabel="Quantité">@context.Quantite</MudTd>
+    </RowTemplate>
+</MudTable>
+
+@code {
+    public record PointValeur(string Date, decimal Valeur);
+    public record Trade(string Date, string Type, decimal Prix, int Quantite);
+    public record Metrique(string Label, string Value);
+
+    private readonly List<Metrique> _metrics = new()
+    {
+        new("Rendement cumulé", "+12,4 %"),
+        new("Rendement moyen / jour", "+0,05 %"),
+        new("Volatilité", "18,2 %"),
+        new("Drawdown max", "-8,7 %"),
+        new("Ratio de Sharpe", "1,12"),
+        new("Nombre de trades", "6"),
+        new("Buy & Hold", "+9,8 %"),
+    };
+
+    private readonly List<PointValeur> _courbe = new()
+    {
+        new("Jan", 10000), new("Fév", 10250), new("Mar", 10100), new("Avr", 10600),
+        new("Mai", 10900), new("Juin", 10700), new("Juil", 11200), new("Août", 11050),
+        new("Sep", 11400), new("Oct", 11250), new("Nov", 11300), new("Déc", 11240),
+    };
+
+    private readonly List<Trade> _trades = new()
+    {
+        new("2023-02-10", "BUY", 150.20m, 66),
+        new("2023-04-18", "SELL", 160.80m, 66),
+        new("2023-06-02", "BUY", 165.10m, 66),
+        new("2023-08-14", "SELL", 172.40m, 66),
+        new("2023-09-20", "BUY", 175.00m, 65),
+        new("2023-12-05", "SELL", 188.30m, 65),
+    };
+}
