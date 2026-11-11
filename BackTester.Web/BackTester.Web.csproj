@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BackTester.Core\BackTester.Core.csproj" />
+    <ProjectReference Include="..\Backtest.Moteur\Backtest.Moteur.csproj" />
   </ItemGroup>
 
   <ItemGroup>

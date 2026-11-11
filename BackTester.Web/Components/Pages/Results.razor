@@ -1,76 +1,97 @@
 @page "/results"
 @using ApexCharts
+@using BackTester.Web.Services
+@inject BacktestState State
 
-<MudText Typo="Typo.h4" Class="mb-4">Résultats (données factices)</MudText>
+<MudText Typo="Typo.h4" Class="mb-4">Résultats</MudText>
 
-<MudGrid Class="mb-4">
-    @foreach (var m in _metrics)
-    {
-        <MudItem xs="6" md="3">
-            <MudPaper Class="pa-3">
-                <MudText Typo="Typo.caption">@m.Label</MudText>
-                <MudText Typo="Typo.h6">@m.Value</MudText>
-            </MudPaper>
-        </MudItem>
-    }
-</MudGrid>
+@if (_result is null)
+{
+    <MudPaper Class="pa-4">
+        <MudText Class="mb-3">Aucun résultat pour l'instant. Lance d'abord une simulation depuis la page Config.</MudText>
+        <MudButton Variant="Variant.Filled" Href="/config">Aller à Config</MudButton>
+    </MudPaper>
+}
+else
+{
+    <MudText Typo="Typo.subtitle1" Class="mb-3">@_subtitle</MudText>
 
-<MudPaper Class="pa-4 mb-4">
-    <ApexChart TItem="PointValeur" Title="Valeur du portefeuille" Height="350">
-        <ApexPointSeries TItem="PointValeur"
-                         Items="_courbe"
-                         Name="Stratégie"
-                         SeriesType="SeriesType.Line"
-                         XValue="p => p.Date"
-                         YValue="p => p.Valeur" />
-    </ApexChart>
-</MudPaper>
+    <MudGrid Class="mb-4">
+        @foreach (var card in Cards)
+        {
+            <MudItem xs="6" md="3">
+                <MudPaper Class="pa-3">
+                    <MudText Typo="Typo.caption">@card.Label</MudText>
+                    <MudText Typo="Typo.h6">@card.Value</MudText>
+                </MudPaper>
+            </MudItem>
+        }
+    </MudGrid>
 
-<MudTable Items="_trades" Dense="true" Hover="true">
-    <HeaderContent>
-        <MudTh>Date</MudTh>
-        <MudTh>Type</MudTh>
-        <MudTh>Prix</MudTh>
-        <MudTh>Quantité</MudTh>
-    </HeaderContent>
-    <RowTemplate>
-        <MudTd DataLabel="Date">@context.Date</MudTd>
-        <MudTd DataLabel="Type">@context.Type</MudTd>
-        <MudTd DataLabel="Prix">@context.Prix.ToString("F2")</MudTd>
-        <MudTd DataLabel="Quantité">@context.Quantite</MudTd>
-    </RowTemplate>
-</MudTable>
+    <MudPaper Class="pa-4 mb-4">
+        <ApexChart TItem="EquityPoint" Title="Valeur du portefeuille" Height="350" Options="_options">
+            <ApexPointSeries TItem="EquityPoint"
+                             Items="_curve"
+                             Name="Stratégie"
+                             SeriesType="SeriesType.Line"
+                             XValue="p => p.Date"
+                             YValue="p => p.Value" />
+        </ApexChart>
+    </MudPaper>
+
+    <MudTable Items="@_result.Trades" Dense="true" Hover="true">
+        <HeaderContent>
+            <MudTh>Date</MudTh>
+            <MudTh>Type</MudTh>
+            <MudTh>Prix</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Date">@context.Date.ToString("dd/MM/yyyy")</MudTd>
+            <MudTd DataLabel="Type">@context.Side</MudTd>
+            <MudTd DataLabel="Prix">@context.Price.ToString("F2")</MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText>Aucun trade sur cette période.</MudText>
+        </NoRecordsContent>
+    </MudTable>
+}
 
 @code {
-    public record PointValeur(string Date, decimal Valeur);
-    public record Trade(string Date, string Type, decimal Prix, int Quantite);
-    public record Metrique(string Label, string Value);
+    public record EquityPoint(DateTime Date, decimal Value);
 
-    private readonly List<Metrique> _metrics = new()
+    private BacktestOutput? _result;
+    private List<EquityPoint> _curve = new();
+    private string _subtitle = "";
+
+    private readonly ApexChartOptions<EquityPoint> _options = new()
     {
-        new("Rendement cumulé", "+12,4 %"),
-        new("Rendement moyen / jour", "+0,05 %"),
-        new("Volatilité", "18,2 %"),
-        new("Drawdown max", "-8,7 %"),
-        new("Ratio de Sharpe", "1,12"),
-        new("Nombre de trades", "6"),
-        new("Buy & Hold", "+9,8 %"),
+        Xaxis = new XAxis { Type = XAxisType.Datetime }
     };
 
-    private readonly List<PointValeur> _courbe = new()
+    protected override void OnInitialized()
     {
-        new("Jan", 10000), new("Fév", 10250), new("Mar", 10100), new("Avr", 10600),
-        new("Mai", 10900), new("Juin", 10700), new("Juil", 11200), new("Août", 11050),
-        new("Sep", 11400), new("Oct", 11250), new("Nov", 11300), new("Déc", 11240),
-    };
+        _result = State.Last;
+        if (_result is null) return;
 
-    private readonly List<Trade> _trades = new()
+        _curve = _result.Dates
+            .Select((d, i) => new EquityPoint(d, Math.Round(_result.Equity[i], 2)))
+            .ToList();
+
+        _subtitle = $"{_result.Request.Strategy} sur {_result.Request.Symbol}, " +
+                    $"du {_result.Dates[0]:dd/MM/yyyy} au {_result.Dates[^1]:dd/MM/yyyy}";
+    }
+
+    private static string Pct(decimal v) => (v * 100).ToString("F2") + " %";
+
+    private IEnumerable<(string Label, string Value)> Cards => new[]
     {
-        new("2023-02-10", "BUY", 150.20m, 66),
-        new("2023-04-18", "SELL", 160.80m, 66),
-        new("2023-06-02", "BUY", 165.10m, 66),
-        new("2023-08-14", "SELL", 172.40m, 66),
-        new("2023-09-20", "BUY", 175.00m, 65),
-        new("2023-12-05", "SELL", 188.30m, 65),
+        ("Rendement cumulé", Pct(_result!.CumulativeReturn)),
+        ("Rendement moyen / jour", Pct(_result.AverageDailyReturn)),
+        ("Volatilité (journalière)", Pct(_result.Volatility)),
+        ("Drawdown max", "-" + Pct(_result.MaxDrawdown)),
+        ("Ratio de Sharpe", _result.Sharpe.ToString("F2")),
+        ("Nombre de trades", _result.Trades.Count.ToString()),
+        ("Buy & Hold", Pct(_result.BuyAndHoldReturn)),
+        ("Capital final", _result.Equity[^1].ToString("F2")),
     };
 }

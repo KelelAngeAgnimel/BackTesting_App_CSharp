@@ -1,5 +1,7 @@
 using BackTester.Web.Components;
 using MudBlazor.Services;
+using BackTester.Web.Data;
+using BackTester.Web.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 var apiKey = builder.Configuration["AlphaVantage:ApiKey"];
@@ -9,6 +11,9 @@ Console.WriteLine(apiKey is null ? "Clé introuvable" : "Clé chargée");
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddMudServices();
+builder.Services.AddHttpClient<MarketDataService>();
+builder.Services.AddScoped<BacktestService>();
+builder.Services.AddScoped<BacktestState>();
 
 var app = builder.Build();
 
