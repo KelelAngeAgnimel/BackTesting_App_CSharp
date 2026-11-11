@@ -1,3 +1,73 @@
 @page "/report"
+@using BackTester.Web.Services
+@inject BacktestState State
 
-<MudText Typo="Typo.h4">Report</MudText>
+<MudText Typo="Typo.h4" Class="mb-4">Report</MudText>
+
+@if (_result is null)
+{
+    <MudPaper Class="pa-4">
+        <MudText Class="mb-3">No result yet. Run a simulation from the Config page first.</MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="/config">Go to Config</MudButton>
+    </MudPaper>
+}
+else
+{
+    <MudPaper Class="pa-4 mb-4">
+        <MudText Typo="Typo.h6" Class="mb-2">Last simulation</MudText>
+        <MudSimpleTable Dense="true" Hover="true">
+            <tbody>
+                @foreach (var (label, value) in Summary)
+                {
+                    <tr>
+                        <td>@label</td>
+                        <td>@value</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    </MudPaper>
+
+    @* The PDF generation is not available yet: the button stays disabled *@
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="true">Download report (PDF)</MudButton>
+    <MudText Typo="Typo.caption" Class="ms-2">PDF report coming soon.</MudText>
+}
+
+@code {
+    private BacktestOutput? _result;
+
+    protected override void OnInitialized() => _result = State.Last;
+
+    // Ratios are fractions: 0.05 is shown as 5.00 %
+    private static string Pct(decimal v) => (v * 100).ToString("F2") + " %";
+
+    private IEnumerable<(string Label, string Value)> Summary
+    {
+        get
+        {
+            var r = _result!;
+            var isPair = r.Request.SymbolB is not null;
+
+            yield return ("Strategy", r.StrategyName);
+            yield return ("Symbol", isPair ? $"{r.Request.Symbol} / {r.Request.SymbolB}" : r.Request.Symbol);
+            yield return ("Period", $"{r.Dates[0]:yyyy-MM-dd} to {r.Dates[^1]:yyyy-MM-dd}");
+            yield return ("Initial capital", r.Request.InitialCapital.ToString("F2"));
+            yield return ("Fees", r.Request.FeesPercent.ToString("0.##") + " %");
+            if (!isPair)
+                yield return ("Stop-loss", r.Request.StopLossPercent == 0
+                    ? "none" : r.Request.StopLossPercent.ToString("0.##") + " %");
+
+            foreach (var p in StrategyCatalog.Get(r.Request.StrategyId).Params)
+                yield return (p.Label, r.Request.Params[p.Key].ToString("0.##"));
+
+            yield return ("Cumulative return", Pct(r.CumulativeReturn));
+            yield return ("Average daily return", Pct(r.AverageDailyReturn));
+            yield return ("Volatility (daily)", Pct(r.Volatility));
+            yield return ("Max drawdown", Pct(r.MaxDrawdown));
+            yield return ("Sharpe ratio (annualized)", r.Sharpe.ToString("F2"));
+            yield return ("Number of trades", r.TradeCount.ToString());
+            yield return ("Buy & Hold return", r.BuyAndHoldReturn is { } bh ? Pct(bh) : "n/a");
+            yield return ("Final capital", r.FinalCapital.ToString("F2"));
+        }
+    }
+}

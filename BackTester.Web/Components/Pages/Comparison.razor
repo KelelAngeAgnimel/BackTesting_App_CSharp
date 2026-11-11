@@ -1,3 +1,264 @@
 @page "/comparison"
+@using ApexCharts
+@using BackTester.Core.Engine
+@using BackTester.Web.Services
+@inject BacktestService Backtests
+@inject ISnackbar Snackbar
 
-<MudText Typo="Typo.h4">Comparison</MudText>
+<MudText Typo="Typo.h4" Class="mb-4">Comparison</MudText>
+
+<MudPaper Class="pa-4 mb-4">
+    <MudGrid>
+        <MudItem xs="12" sm="4">
+            <MudTextField Label="Symbol (e.g. AAPL)" @bind-Value="_symbol" />
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudDatePicker Label="Start date" @bind-Date="_start" />
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudDatePicker Label="End date" @bind-Date="_end" />
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudNumericField T="decimal" Label="Initial capital" @bind-Value="_capital" Min="0" />
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudNumericField T="decimal" Label="Transaction fees (%)" @bind-Value="_fees" Min="0" />
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudNumericField T="decimal" Label="Stop-loss (%, 0 = none)" @bind-Value="_stopLoss" Min="0" />
+        </MudItem>
+    </MudGrid>
+
+    <MudText Typo="Typo.subtitle1" Class="mt-4">Strategies to compare</MudText>
+    <MudText Typo="Typo.caption">Pair Trading needs two symbols, so it is not part of this comparison.</MudText>
+
+    @foreach (var s in Strategies)
+    {
+        var strategy = s;
+        <div class="mt-2">
+            <MudCheckBox T="bool" Label="@strategy.Name"
+                         Value="_selected.Contains(strategy.Id)"
+                         ValueChanged="@((bool on) => Toggle(strategy.Id, on))" />
+            @if (_selected.Contains(strategy.Id))
+            {
+                <MudGrid Class="ms-4">
+                    @foreach (var p in strategy.Params)
+                    {
+                        var param = p;
+                        <MudItem xs="12" sm="4">
+                            <MudNumericField T="decimal" Label="@param.Label" Min="param.Min"
+                                             Value="_params[strategy.Id][param.Key]"
+                                             ValueChanged="@((decimal v) => _params[strategy.Id][param.Key] = v)" />
+                        </MudItem>
+                    }
+                </MudGrid>
+            }
+        </div>
+    }
+
+    <MudButton Class="mt-4" Variant="Variant.Filled" Color="MudBlazor.Color.Primary"
+               OnClick="RunAsync" Disabled="_loading">
+        @if (_loading)
+        {
+            <MudProgressCircular Size="MudBlazor.Size.Small" Indeterminate="true" Class="me-2" />
+            <span>Running...</span>
+        }
+        else
+        {
+            <span>Compare</span>
+        }
+    </MudButton>
+</MudPaper>
+
+@if (_rows.Count == 0)
+{
+    <MudText>No comparison yet. Choose your strategies and click Compare.</MudText>
+}
+else
+{
+    <MudText Typo="Typo.subtitle1" Class="mb-2">@_subtitle</MudText>
+
+    <MudTable Items="@_rows" Dense="true" Hover="true" Class="mb-4">
+        <HeaderContent>
+            <MudTh>Strategy</MudTh>
+            <MudTh>Cumulative return</MudTh>
+            <MudTh>Avg daily return</MudTh>
+            <MudTh>Volatility (daily)</MudTh>
+            <MudTh>Max drawdown</MudTh>
+            <MudTh>Sharpe (annualized)</MudTh>
+            <MudTh>Trades</MudTh>
+            <MudTh>Final capital</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Strategy">@context.Name</MudTd>
+            <MudTd DataLabel="Cumulative return">@Pct(context.Cumulative)</MudTd>
+            <MudTd DataLabel="Avg daily return">@Pct(context.AverageDaily)</MudTd>
+            <MudTd DataLabel="Volatility (daily)">@Pct(context.Volatility)</MudTd>
+            <MudTd DataLabel="Max drawdown">@Pct(context.MaxDrawdown)</MudTd>
+            <MudTd DataLabel="Sharpe (annualized)">@context.Sharpe.ToString("F2")</MudTd>
+            <MudTd DataLabel="Trades">@context.Trades</MudTd>
+            <MudTd DataLabel="Final capital">@context.FinalCapital.ToString("F2")</MudTd>
+        </RowTemplate>
+    </MudTable>
+
+    <MudPaper Class="pa-4">
+        <ApexChart @key="_chartKey" TItem="ChartPoint" Title="Performance (base 100 at the start)"
+                   Height="400" Options="_options">
+            @foreach (var line in _lines)
+            {
+                <ApexPointSeries TItem="ChartPoint"
+                                 Items="line.Points"
+                                 Name="@line.Name"
+                                 SeriesType="SeriesType.Line"
+                                 XValue="p => p.Date"
+                                 YValue="p => p.Value" />
+            }
+        </ApexChart>
+    </MudPaper>
+}
+
+@code {
+    public record ChartPoint(DateTime Date, decimal Value);
+    private record Row(string Name, decimal Cumulative, decimal AverageDaily, decimal Volatility,
+        decimal MaxDrawdown, decimal Sharpe, int Trades, decimal FinalCapital);
+    private record Line(string Name, List<ChartPoint> Points);
+
+    private string _symbol = "AAPL";
+    private DateTime? _start = new DateTime(2023, 1, 1);
+    private DateTime? _end = new DateTime(2024, 1, 1);
+    private decimal _capital = 10000;
+    private decimal _fees = 0.1m;
+    private decimal _stopLoss = 0;
+    private bool _loading;
+
+    // Strategies that work on a single symbol
+    private static IEnumerable<StrategyDefinition> Strategies => StrategyCatalog.All.Where(s => !s.IsPair);
+
+    private readonly HashSet<string> _selected = new();
+    private readonly Dictionary<string, Dictionary<string, decimal>> _params = new();
+
+    private List<Row> _rows = new();
+    private List<Line> _lines = new();
+    private string _subtitle = "";
+    private int _chartKey;
+
+    private readonly ApexChartOptions<ChartPoint> _options = new()
+    {
+        Xaxis = new XAxis { Type = XAxisType.Datetime }
+    };
+
+    protected override void OnInitialized()
+    {
+        foreach (var s in Strategies)
+            _params[s.Id] = s.Params.ToDictionary(p => p.Key, p => p.Default);
+        _selected.Add(Strategies.First().Id);
+    }
+
+    private void Toggle(string id, bool on)
+    {
+        if (on) _selected.Add(id); else _selected.Remove(id);
+    }
+
+    private string? Validate()
+    {
+        if (string.IsNullOrWhiteSpace(_symbol))
+            return "Enter a symbol (e.g. AAPL).";
+        if (_start is null || _end is null)
+            return "Choose a start date and an end date.";
+        if (_start >= _end)
+            return "The start date must be before the end date.";
+        if (_capital <= 0)
+            return "The initial capital must be positive.";
+        if (_fees < 0 || _fees >= 100)
+            return "The fees must be between 0 and 100 %.";
+        if (_stopLoss < 0 || _stopLoss >= 100)
+            return "The stop-loss must be between 0 and 100 %.";
+        if (_selected.Count == 0)
+            return "Select at least one strategy.";
+
+        foreach (var s in Strategies.Where(s => _selected.Contains(s.Id)))
+        {
+            foreach (var p in s.Params)
+            {
+                var value = _params[s.Id][p.Key];
+                if (value < p.Min)
+                    return $"{s.Name}: {p.Label} must be at least {p.Min}.";
+                if (p.IsInteger && value != decimal.Truncate(value))
+                    return $"{s.Name}: {p.Label} must be a whole number.";
+            }
+            var error = s.Validate(_params[s.Id]);
+            if (error is not null) return $"{s.Name}: {error}";
+        }
+        return null;
+    }
+
+    private async Task RunAsync()
+    {
+        var error = Validate();
+        if (error is not null)
+        {
+            Snackbar.Add(error, Severity.Warning);
+            return;
+        }
+
+        _loading = true;
+        try
+        {
+            var request = new ComparisonRequest(
+                _symbol.Trim().ToUpperInvariant(), _start!.Value, _end!.Value,
+                _capital, _fees, _stopLoss,
+                Strategies.Where(s => _selected.Contains(s.Id))
+                    .Select(s => new StrategySelection(s.Id, new Dictionary<string, decimal>(_params[s.Id])))
+                    .ToList());
+
+            var results = await Backtests.CompareAsync(request);
+            Show(results);
+        }
+        catch (BacktestException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        catch (Exception)
+        {
+            Snackbar.Add("Something went wrong. Please try again.", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void Show(List<BacktestOutput> results)
+    {
+        var first = results[0];
+        var rows = new List<Row>();
+        var lines = new List<Line>();
+
+        foreach (var r in results)
+        {
+            rows.Add(new Row(r.StrategyName, r.CumulativeReturn, r.AverageDailyReturn, r.Volatility,
+                r.MaxDrawdown, r.Sharpe, r.TradeCount, r.FinalCapital));
+            lines.Add(new Line(r.StrategyName, Normalize(r.Dates, r.Equity)));
+        }
+
+        // Buy & Hold: buy on the first day with the whole capital and keep until the end
+        var holdCurve = first.Prices.Select(p => p / first.Prices[0] * first.Request.InitialCapital).ToArray();
+        rows.Add(new Row("Buy & Hold",
+            PerformanceMetrics.CumulativeReturn(holdCurve), PerformanceMetrics.AverageDailyReturn(holdCurve),
+            PerformanceMetrics.Volatility(holdCurve), PerformanceMetrics.MaxDrawdown(holdCurve),
+            PerformanceMetrics.SharpeRatio(holdCurve), 1, holdCurve[^1]));
+        lines.Add(new Line("Buy & Hold", Normalize(first.Dates, holdCurve)));
+
+        _rows = rows;
+        _lines = lines;
+        _subtitle = $"{first.Request.Symbol}, from {first.Dates[0]:yyyy-MM-dd} to {first.Dates[^1]:yyyy-MM-dd}";
+        _chartKey++;
+    }
+
+    // Every curve starts at 100 so that they can be compared
+    private static List<ChartPoint> Normalize(DateTime[] dates, decimal[] curve) =>
+        dates.Select((d, i) => new ChartPoint(d, Math.Round(curve[i] / curve[0] * 100, 2))).ToList();
+
+    // Ratios are fractions: 0.05 is shown as 5.00 %
+    private static string Pct(decimal v) => (v * 100).ToString("F2") + " %";
+}

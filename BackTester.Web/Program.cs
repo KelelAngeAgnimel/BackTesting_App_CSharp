@@ -1,13 +1,9 @@
-using BackTester.Web.Data;
 using BackTester.Web.Components;
 using MudBlazor.Services;
 using BackTester.Web.Data;
 using BackTester.Web.Services;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddHttpClient<MarketDataService>();
-var apiKey = builder.Configuration["AlphaVantage:ApiKey"];
-Console.WriteLine(apiKey is null ? "Clé introuvable" : "Clé chargée");
 
 // Add services to the container.
 builder.Services.AddRazorComponents()

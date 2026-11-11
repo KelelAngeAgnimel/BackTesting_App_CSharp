@@ -3,13 +3,13 @@
 @using BackTester.Web.Services
 @inject BacktestState State
 
-<MudText Typo="Typo.h4" Class="mb-4">Résultats</MudText>
+<MudText Typo="Typo.h4" Class="mb-4">Results</MudText>
 
 @if (_result is null)
 {
     <MudPaper Class="pa-4">
-        <MudText Class="mb-3">Aucun résultat pour l'instant. Lance d'abord une simulation depuis la page Config.</MudText>
-        <MudButton Variant="Variant.Filled" Href="/config">Aller à Config</MudButton>
+        <MudText Class="mb-3">No result yet. Run a simulation from the Config page first.</MudText>
+        <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" Href="/config">Go to Config</MudButton>
     </MudPaper>
 }
 else
@@ -29,41 +29,68 @@ else
     </MudGrid>
 
     <MudPaper Class="pa-4 mb-4">
-        <ApexChart TItem="EquityPoint" Title="Valeur du portefeuille" Height="350" Options="_options">
-            <ApexPointSeries TItem="EquityPoint"
-                             Items="_curve"
-                             Name="Stratégie"
+        <ApexChart TItem="ChartPoint" Title="Portfolio value" Height="350" Options="_equityOptions">
+            <ApexPointSeries TItem="ChartPoint"
+                             Items="_equity"
+                             Name="Portfolio value"
                              SeriesType="SeriesType.Line"
                              XValue="p => p.Date"
                              YValue="p => p.Value" />
         </ApexChart>
     </MudPaper>
 
+    <MudPaper Class="pa-4 mb-4">
+        <ApexChart TItem="ChartPoint" Title="Drawdown (%)" Height="300" Options="_drawdownOptions">
+            <ApexPointSeries TItem="ChartPoint"
+                             Items="_drawdown"
+                             Name="Drawdown (%)"
+                             SeriesType="SeriesType.Area"
+                             XValue="p => p.Date"
+                             YValue="p => p.Value" />
+        </ApexChart>
+    </MudPaper>
+
+    <MudText Typo="Typo.h6" Class="mb-2">Trades</MudText>
     <MudTable Items="@_result.Trades" Dense="true" Hover="true">
         <HeaderContent>
             <MudTh>Date</MudTh>
             <MudTh>Type</MudTh>
-            <MudTh>Prix</MudTh>
+            <MudTh>@(_isPair ? "Price A" : "Price")</MudTh>
+            @if (_isPair)
+            {
+                <MudTh>Price B</MudTh>
+            }
         </HeaderContent>
         <RowTemplate>
-            <MudTd DataLabel="Date">@context.Date.ToString("dd/MM/yyyy")</MudTd>
-            <MudTd DataLabel="Type">@context.Side</MudTd>
-            <MudTd DataLabel="Prix">@context.Price.ToString("F2")</MudTd>
+            <MudTd DataLabel="Date">@context.Date.ToString("yyyy-MM-dd")</MudTd>
+            <MudTd DataLabel="Type">@context.Type</MudTd>
+            <MudTd DataLabel="@(_isPair ? "Price A" : "Price")">@context.Price.ToString("F2")</MudTd>
+            @if (_isPair)
+            {
+                <MudTd DataLabel="Price B">@(context.PriceB?.ToString("F2") ?? "-")</MudTd>
+            }
         </RowTemplate>
         <NoRecordsContent>
-            <MudText>Aucun trade sur cette période.</MudText>
+            <MudText>No trades on this period.</MudText>
         </NoRecordsContent>
     </MudTable>
 }
 
 @code {
-    public record EquityPoint(DateTime Date, decimal Value);
+    public record ChartPoint(DateTime Date, decimal Value);
 
     private BacktestOutput? _result;
-    private List<EquityPoint> _curve = new();
+    private List<ChartPoint> _equity = new();
+    private List<ChartPoint> _drawdown = new();
     private string _subtitle = "";
+    private bool _isPair;
 
-    private readonly ApexChartOptions<EquityPoint> _options = new()
+    private readonly ApexChartOptions<ChartPoint> _equityOptions = new()
+    {
+        Xaxis = new XAxis { Type = XAxisType.Datetime }
+    };
+
+    private readonly ApexChartOptions<ChartPoint> _drawdownOptions = new()
     {
         Xaxis = new XAxis { Type = XAxisType.Datetime }
     };
@@ -73,25 +100,43 @@ else
         _result = State.Last;
         if (_result is null) return;
 
-        _curve = _result.Dates
-            .Select((d, i) => new EquityPoint(d, Math.Round(_result.Equity[i], 2)))
+        _isPair = _result.Request.SymbolB is not null;
+
+        _equity = _result.Dates
+            .Select((d, i) => new ChartPoint(d, Math.Round(_result.Equity[i], 2)))
             .ToList();
 
-        _subtitle = $"{_result.Request.Strategy} sur {_result.Request.Symbol}, " +
-                    $"du {_result.Dates[0]:dd/MM/yyyy} au {_result.Dates[^1]:dd/MM/yyyy}";
+        // Drawdown = (running peak - value) / running peak, in %
+        var peak = 0m;
+        _drawdown = _result.Dates
+            .Select((d, i) =>
+            {
+                var value = _result.Equity[i];
+                if (value > peak) peak = value;
+                var dd = peak > 0 ? (peak - value) / peak * 100 : 0;
+                return new ChartPoint(d, Math.Round(dd, 2));
+            })
+            .ToList();
+
+        var symbols = _isPair
+            ? $"{_result.Request.Symbol} / {_result.Request.SymbolB}"
+            : _result.Request.Symbol;
+        _subtitle = $"{_result.StrategyName} on {symbols}, " +
+                    $"from {_result.Dates[0]:yyyy-MM-dd} to {_result.Dates[^1]:yyyy-MM-dd}";
     }
 
+    // Ratios are fractions: 0.05 is shown as 5.00 %
     private static string Pct(decimal v) => (v * 100).ToString("F2") + " %";
 
     private IEnumerable<(string Label, string Value)> Cards => new[]
     {
-        ("Rendement cumulé", Pct(_result!.CumulativeReturn)),
-        ("Rendement moyen / jour", Pct(_result.AverageDailyReturn)),
-        ("Volatilité (journalière)", Pct(_result.Volatility)),
-        ("Drawdown max", "-" + Pct(_result.MaxDrawdown)),
-        ("Ratio de Sharpe", _result.Sharpe.ToString("F2")),
-        ("Nombre de trades", _result.Trades.Count.ToString()),
-        ("Buy & Hold", Pct(_result.BuyAndHoldReturn)),
-        ("Capital final", _result.Equity[^1].ToString("F2")),
+        ("Cumulative return", Pct(_result!.CumulativeReturn)),
+        ("Average daily return", Pct(_result.AverageDailyReturn)),
+        ("Volatility (daily)", Pct(_result.Volatility)),
+        ("Max drawdown", Pct(_result.MaxDrawdown)),
+        ("Sharpe ratio (annualized)", _result.Sharpe.ToString("F2")),
+        ("Number of trades", _result.TradeCount.ToString()),
+        ("Buy & Hold return", _result.BuyAndHoldReturn is { } bh ? Pct(bh) : "n/a"),
+        ("Final capital", _result.FinalCapital.ToString("F2")),
     };
 }

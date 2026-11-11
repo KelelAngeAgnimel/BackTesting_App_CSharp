@@ -10,53 +10,79 @@
 <MudPaper Class="pa-4">
     <MudGrid>
         <MudItem xs="12" sm="6">
-            <MudSelect T="string" Label="Stratégie" @bind-Value="_strategy">
-                @foreach (var s in _strategies)
+            <MudSelect T="string" Label="Strategy" Value="_strategyId" ValueChanged="OnStrategyChanged">
+                @foreach (var s in StrategyCatalog.All)
                 {
-                    <MudSelectItem T="string" Value="@s">@s</MudSelectItem>
+                    <MudSelectItem T="string" Value="@s.Id">@s.Name</MudSelectItem>
                 }
             </MudSelect>
         </MudItem>
         <MudItem xs="12" sm="6">
-            <MudTextField Label="Symbole (ex : AAPL)" @bind-Value="_symbol" />
-        </MudItem>
-        <MudItem xs="12" sm="4">
-            <MudNumericField T="decimal" Label="Capital initial" @bind-Value="_capital" Min="0" />
-        </MudItem>
-        <MudItem xs="12" sm="4">
-            <MudNumericField T="decimal" Label="Frais de transaction (%)" @bind-Value="_fees" Min="0" />
-        </MudItem>
-        <MudItem xs="12" sm="4">
-            <MudNumericField T="decimal" Label="Stop-loss (%, 0 = aucun)" @bind-Value="_stopLoss" Min="0" />
-        </MudItem>
-        <MudItem xs="12" sm="4">
-            <MudDatePicker Label="Début" @bind-Date="_start" />
-        </MudItem>
-        <MudItem xs="12" sm="4">
-            <MudDatePicker Label="Fin" @bind-Date="_end" />
-        </MudItem>
-        <MudItem xs="12" sm="4">
-            <MudSelect T="string" Label="Timeframe" @bind-Value="_timeframe">
+            <MudSelect T="string" Label="Timeframe" @bind-Value="_timeframe"
+                       HelperText="Weekly is not available yet.">
                 <MudSelectItem T="string" Value="@("Daily")">Daily</MudSelectItem>
-                <MudSelectItem T="string" Value="@("Weekly")">Weekly</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Weekly")" Disabled="true">Weekly (not available yet)</MudSelectItem>
             </MudSelect>
         </MudItem>
+
+        <MudItem xs="12" sm="@(Strategy.IsPair ? 6 : 12)">
+            <MudTextField Label="@(Strategy.IsPair ? "Symbol A (e.g. AAPL)" : "Symbol (e.g. AAPL)")"
+                          @bind-Value="_symbol" />
+        </MudItem>
+        @if (Strategy.IsPair)
+        {
+            <MudItem xs="12" sm="6">
+                <MudTextField Label="Symbol B (e.g. MSFT)" @bind-Value="_symbolB" />
+            </MudItem>
+        }
+
         <MudItem xs="12" sm="6">
-            <MudNumericField T="int" Label="Moyenne courte (jours)" @bind-Value="_shortMa" Min="1" />
+            <MudDatePicker Label="Start date" @bind-Date="_start" />
         </MudItem>
         <MudItem xs="12" sm="6">
-            <MudNumericField T="int" Label="Moyenne longue (jours)" @bind-Value="_longMa" Min="2" />
+            <MudDatePicker Label="End date" @bind-Date="_end" />
         </MudItem>
+
+        <MudItem xs="12" sm="4">
+            <MudNumericField T="decimal" Label="Initial capital" @bind-Value="_capital" Min="0" />
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudNumericField T="decimal" Label="Transaction fees (%)" @bind-Value="_fees" Min="0" />
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            @if (Strategy.SupportsStopLoss)
+            {
+                <MudNumericField T="decimal" Label="Stop-loss (%, 0 = none)" @bind-Value="_stopLoss" Min="0" />
+            }
+            else
+            {
+                <MudNumericField T="decimal" Label="Stop-loss (%)" Value="0m" Disabled="true"
+                                 HelperText="Not available for this strategy." />
+            }
+        </MudItem>
+
+        @* Strategy fields come from the catalog *@
+        @foreach (var p in Strategy.Params)
+        {
+            var param = p;
+            <MudItem xs="12" sm="4">
+                <MudNumericField T="decimal" Label="@param.Label"
+                                 Value="_params[param.Key]"
+                                 ValueChanged="@((decimal v) => _params[param.Key] = v)"
+                                 Min="param.Min" />
+            </MudItem>
+        }
+
         <MudItem xs="12">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Lancer" Disabled="_loading">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="RunAsync" Disabled="_loading">
                 @if (_loading)
                 {
                     <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
-                    <span>Calcul en cours...</span>
+                    <span>Running...</span>
                 }
                 else
                 {
-                    <span>Lancer</span>
+                    <span>Run</span>
                 }
             </MudButton>
         </MudItem>
@@ -64,41 +90,72 @@
 </MudPaper>
 
 @code {
-    // D'autres stratégies seront ajoutées quand le moteur les aura
-    private readonly string[] _strategies = { "Moving Average Crossover" };
-
-    private string _strategy = "Moving Average Crossover";
+    private string _strategyId = StrategyCatalog.All[0].Id;
+    private string _timeframe = "Daily";
     private string _symbol = "AAPL";
+    private string _symbolB = "MSFT";
     private decimal _capital = 10000;
     private decimal _fees = 0.1m;
     private decimal _stopLoss = 0;
     private DateTime? _start = new DateTime(2023, 1, 1);
     private DateTime? _end = new DateTime(2024, 1, 1);
-    private string _timeframe = "Daily";
-    private int _shortMa = 20;
-    private int _longMa = 50;
+    private Dictionary<string, decimal> _params = new();
     private bool _loading;
 
-    private async Task Lancer()
+    private StrategyDefinition Strategy => StrategyCatalog.Get(_strategyId);
+
+    protected override void OnInitialized() => ResetParams();
+
+    private void OnStrategyChanged(string id)
+    {
+        _strategyId = id;
+        ResetParams();
+    }
+
+    // Default values of the chosen strategy
+    private void ResetParams() =>
+        _params = Strategy.Params.ToDictionary(p => p.Key, p => p.Default);
+
+    // Returns an error message, or null if the form is valid
+    private string? Validate()
     {
         if (string.IsNullOrWhiteSpace(_symbol))
+            return "Enter a symbol (e.g. AAPL).";
+        if (Strategy.IsPair)
         {
-            Snackbar.Add("Indique un symbole (ex : AAPL).", Severity.Warning);
-            return;
+            if (string.IsNullOrWhiteSpace(_symbolB))
+                return "Enter the second symbol.";
+            if (string.Equals(_symbol.Trim(), _symbolB.Trim(), StringComparison.OrdinalIgnoreCase))
+                return "The two symbols must be different.";
         }
-        if (_start is null || _end is null || _start >= _end)
+        if (_start is null || _end is null)
+            return "Choose a start date and an end date.";
+        if (_start >= _end)
+            return "The start date must be before the end date.";
+        if (_capital <= 0)
+            return "The initial capital must be positive.";
+        if (_fees < 0 || _fees >= 100)
+            return "The fees must be between 0 and 100 %.";
+        if (Strategy.SupportsStopLoss && (_stopLoss < 0 || _stopLoss >= 100))
+            return "The stop-loss must be between 0 and 100 %.";
+
+        foreach (var p in Strategy.Params)
         {
-            Snackbar.Add("La date de début doit être avant la date de fin.", Severity.Warning);
-            return;
+            var value = _params[p.Key];
+            if (value < p.Min)
+                return $"{p.Label} must be at least {p.Min}.";
+            if (p.IsInteger && value != decimal.Truncate(value))
+                return $"{p.Label} must be a whole number.";
         }
-        if (_shortMa >= _longMa)
+        return Strategy.Validate(_params);
+    }
+
+    private async Task RunAsync()
+    {
+        var error = Validate();
+        if (error is not null)
         {
-            Snackbar.Add("La moyenne courte doit être plus petite que la longue.", Severity.Warning);
-            return;
-        }
-        if (_timeframe == "Weekly")
-        {
-            Snackbar.Add("Le mode Weekly n'est pas encore disponible.", Severity.Info);
+            Snackbar.Add(error, Severity.Warning);
             return;
         }
 
@@ -106,8 +163,11 @@
         try
         {
             var request = new BacktestRequest(
-                _strategy, _symbol.Trim().ToUpperInvariant(), _capital, _fees, _stopLoss,
-                _start.Value, _end.Value, _shortMa, _longMa);
+                _strategyId, _symbol.Trim().ToUpperInvariant(),
+                Strategy.IsPair ? _symbolB.Trim().ToUpperInvariant() : null,
+                _start!.Value, _end!.Value,
+                _capital, _fees, Strategy.SupportsStopLoss ? _stopLoss : 0,
+                new Dictionary<string, decimal>(_params));
 
             State.Last = await Backtests.RunAsync(request);
             Nav.NavigateTo("/results");
@@ -116,9 +176,9 @@
         {
             Snackbar.Add(ex.Message, Severity.Error);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            Snackbar.Add("Erreur inattendue : " + ex.Message, Severity.Error);
+            Snackbar.Add("Something went wrong. Please try again.", Severity.Error);
         }
         finally
         {
