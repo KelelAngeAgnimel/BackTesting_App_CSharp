@@ -11,13 +11,14 @@ public static class StrategyDemo
             111, 113, 112, 114, 106, 98, 92, 86, 80, 75
         };
 
-        var strategy = new BuyAndHoldStrategy();
-        Signal[] signals = strategy.GenerateSignals(prices);
+        Show("Buy & Hold", new Backtester().Run(prices, new BuyAndHoldStrategy().GenerateSignals(prices), 10000m, 0.001m, 0m));
+        Show("Breakout (lookback 5)", new Backtester().Run(prices, new BreakoutStrategy(5).GenerateSignals(prices), 10000m, 0.001m, 0m));
+        Show("DCA (4 parts, every 5 days)", new DcaStrategy(5, 4).Run(prices, 10000m, 0.001m));
+    }
 
-        var backtester = new Backtester();
-        BacktestResult result = backtester.Run(prices, signals, 10000m, 0.001m, 0m);
-
-        Console.WriteLine("--- Buy & Hold ---");
+    private static void Show(string name, BacktestResult result)
+    {
+        Console.WriteLine($"--- {name} ---");
         foreach (Trade trade in result.Trades)
             Console.WriteLine($"day {trade.Day} : {trade.Signal} at {trade.Price}");
 

@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
-
+StrategyDemo.Run();
+return;
 decimal[] prices =
 {
     100, 102, 104, 103, 105, 107, 106, 108, 110, 109,
