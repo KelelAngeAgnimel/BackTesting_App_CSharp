@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 
@@ -99,6 +99,94 @@ public class BacktestRunner
         PairBacktestResult result = backtester.Run(closesA, closesB, signals, initialCapital, feeRate);
 
         return new PairPerformanceReport
+        {
+            EquityCurve = result.EquityCurve,
+            Trades = result.Trades,
+            CumulativeReturn = PerformanceMetrics.CumulativeReturn(result.EquityCurve),
+            AverageDailyReturn = PerformanceMetrics.AverageDailyReturn(result.EquityCurve),
+            Volatility = PerformanceMetrics.Volatility(result.EquityCurve),
+            MaxDrawdown = PerformanceMetrics.MaxDrawdown(result.EquityCurve),
+            SharpeRatio = PerformanceMetrics.SharpeRatio(result.EquityCurve),
+        };
+    }
+
+    public PerformanceReport RunRsi(decimal[] closes, int period, decimal buyThreshold, decimal sellThreshold, decimal initialCapital, decimal feeRate, decimal stopLossRate)
+    {
+        // 1. Validation
+
+        if (period < 2)
+        {
+            throw new ArgumentException("period must be at least 2.");
+        }
+
+        if (buyThreshold < 0 || sellThreshold > 100 || buyThreshold >= sellThreshold)
+        {
+            throw new ArgumentException("Thresholds must satisfy 0 <= buyThreshold < sellThreshold <= 100.");
+        }
+
+        if (closes.Length <= period + 1)
+        {
+            throw new ArgumentException("Not enough price data for this period.");
+        }
+
+        if (initialCapital <= 0)
+        {
+            throw new ArgumentException("initialCapital must be a positive value.");
+        }
+
+        if (feeRate < 0 || stopLossRate < 0 || stopLossRate >= 1)
+        {
+            throw new ArgumentException("feeRate must be positive and stopLossRate must be between 0 and 1.");
+        }
+
+        var strategy = new RsiStrategy(period, buyThreshold, sellThreshold);
+        Signal[] signals = strategy.GenerateSignals(closes);
+        var backtester = new Backtester();
+        BacktestResult result = backtester.Run(closes, signals, initialCapital, feeRate, stopLossRate);
+
+        return new PerformanceReport
+        {
+            EquityCurve = result.EquityCurve,
+            Trades = result.Trades,
+            CumulativeReturn = PerformanceMetrics.CumulativeReturn(result.EquityCurve),
+            AverageDailyReturn = PerformanceMetrics.AverageDailyReturn(result.EquityCurve),
+            Volatility = PerformanceMetrics.Volatility(result.EquityCurve),
+            MaxDrawdown = PerformanceMetrics.MaxDrawdown(result.EquityCurve),
+            SharpeRatio = PerformanceMetrics.SharpeRatio(result.EquityCurve),
+        };
+    }
+
+    // threshold is a percentage (5 = 5 %), not a fraction
+    public PerformanceReport RunMomentum(decimal[] closes, int period, decimal threshold, decimal initialCapital, decimal feeRate, decimal stopLossRate)
+    {
+        // 1. Validation
+
+        if (period < 1)
+        {
+            throw new ArgumentException("period must be at least 1.");
+        }
+
+        if (closes.Length <= period + 1)
+        {
+            throw new ArgumentException("Not enough price data for this period.");
+        }
+
+        if (initialCapital <= 0)
+        {
+            throw new ArgumentException("initialCapital must be a positive value.");
+        }
+
+        if (feeRate < 0 || stopLossRate < 0 || stopLossRate >= 1)
+        {
+            throw new ArgumentException("feeRate must be positive and stopLossRate must be between 0 and 1.");
+        }
+
+        var strategy = new MomentumStrategy(period, threshold);
+        Signal[] signals = strategy.GenerateSignals(closes);
+        var backtester = new Backtester();
+        BacktestResult result = backtester.Run(closes, signals, initialCapital, feeRate, stopLossRate);
+
+        return new PerformanceReport
         {
             EquityCurve = result.EquityCurve,
             Trades = result.Trades,
