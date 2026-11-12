@@ -1,0 +1,59 @@
+﻿@page "/data"
+@using BackTester.Web.Data
+@inject MarketDataService MarketData
+
+<PageTitle>Data</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-2">Available data</MudText>
+<MudText Class="mb-4">
+    Daily prices stored in the local cache (DataCache folder). They are read from files, without any API call.
+</MudText>
+
+@if (_error != null)
+{
+    <MudAlert Severity="Severity.Error">@_error</MudAlert>
+}
+else if (_summaries == null)
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+else if (_summaries.Count == 0)
+{
+    <MudAlert Severity="Severity.Info">No cached data found.</MudAlert>
+}
+else
+{
+    <MudTable Items="_summaries" Hover="true" Dense="true">
+        <HeaderContent>
+            <MudTh>Symbol</MudTh>
+            <MudTh>Number of prices</MudTh>
+            <MudTh>First date</MudTh>
+            <MudTh>Last date</MudTh>
+            <MudTh>Last close</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Symbol">@context.Symbol</MudTd>
+            <MudTd DataLabel="Number of prices">@context.PriceCount</MudTd>
+            <MudTd DataLabel="First date">@context.FirstDate.ToString("yyyy-MM-dd")</MudTd>
+            <MudTd DataLabel="Last date">@context.LastDate.ToString("yyyy-MM-dd")</MudTd>
+            <MudTd DataLabel="Last close">@context.LastClose.ToString("N2")</MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@code {
+    private List<CacheSummary>? _summaries;
+    private string? _error;
+
+    protected override void OnInitialized()
+    {
+        try
+        {
+            _summaries = MarketData.GetCacheSummaries();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+}
