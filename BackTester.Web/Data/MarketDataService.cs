@@ -6,6 +6,8 @@ using CsvHelper.Configuration;
 namespace BackTester.Web.Data;
 
 public record PriceSeries(DateTime[] Dates, decimal[] Closes);
+// Summary of one cached symbol, shown on the Data page
+public record CacheSummary(string Symbol, int PriceCount, DateTime FirstDate, DateTime LastDate, decimal LastClose);
 
 public class MarketDataService
 {
@@ -44,6 +46,27 @@ public class MarketDataService
         return ParseCsv(text);
     }
 
+    // Reads only the files of the cache folder: no API call
+    public List<CacheSummary> GetCacheSummaries()
+    {
+        var summaries = new List<CacheSummary>();
+
+        foreach (var file in Directory.GetFiles(_cacheFolder, "*.csv").OrderBy(f => f))
+        {
+            var prices = ParseCsv(File.ReadAllText(file));
+            if (prices.Count == 0)
+                continue;
+
+            summaries.Add(new CacheSummary(
+                Path.GetFileNameWithoutExtension(file),
+                prices.Count,
+                prices[0].Date,
+                prices[^1].Date,
+                prices[^1].Close));
+        }
+
+        return summaries;
+    }
     private async Task<string> GetCsvTextAsync(string symbol)
     {
         var path = Path.Combine(_cacheFolder, symbol + ".csv");
