@@ -59,6 +59,36 @@ public static class StrategyCatalog
             }),
 
         new StrategyDefinition(
+            "rsi", "RSI", IsPair: false, SupportsStopLoss: true,
+            new[]
+            {
+                new StrategyParam("Period", "RSI period", 14, 2, true),
+                new StrategyParam("BuyThreshold", "Buy threshold (0-100)", 30, 0, false),
+                new StrategyParam("SellThreshold", "Sell threshold (0-100)", 70, 0, false),
+            },
+            p => p["BuyThreshold"] >= p["SellThreshold"]
+                ? "The buy threshold must be smaller than the sell threshold."
+                : p["SellThreshold"] > 100 ? "The thresholds must be between 0 and 100." : null,
+            p => (int)p["Period"] + 2,
+            i => ToResult(new BacktestRunner().RunRsi(
+                i.ClosesA, (int)i.Params["Period"], i.Params["BuyThreshold"], i.Params["SellThreshold"],
+                i.InitialCapital, i.FeeRate, i.StopLossRate))),
+
+        new StrategyDefinition(
+            "momentum", "Momentum", IsPair: false, SupportsStopLoss: true,
+            new[]
+            {
+                new StrategyParam("Period", "Momentum period", 10, 1, true),
+                // In %, passed to the engine as it is (5 = 5 %)
+                new StrategyParam("Threshold", "Threshold (%)", 0, 0, false),
+            },
+            _ => null,
+            p => (int)p["Period"] + 2,
+            i => ToResult(new BacktestRunner().RunMomentum(
+                i.ClosesA, (int)i.Params["Period"], i.Params["Threshold"],
+                i.InitialCapital, i.FeeRate, i.StopLossRate))),
+
+        new StrategyDefinition(
             "pair", "Pair Trading", IsPair: true, SupportsStopLoss: false,
             new[]
             {
