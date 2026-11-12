@@ -1,5 +1,5 @@
 using System;
-
+  namespace BackTester.Core.Engine;
 public class MomentumStrategy
 {
     private readonly int period;

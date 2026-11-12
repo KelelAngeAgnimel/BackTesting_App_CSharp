@@ -1,5 +1,5 @@
 using System;
-
+  namespace BackTester.Core.Engine;
 public class RsiStrategy
 {
     private readonly int period;
