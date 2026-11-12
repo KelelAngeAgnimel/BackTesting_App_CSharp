@@ -1,11 +1,21 @@
 @page "/config"
+@using BackTester.Web.Data
 @using BackTester.Web.Services
 @inject BacktestService Backtests
+@inject MarketDataService Market
 @inject BacktestState State
 @inject NavigationManager Nav
 @inject ISnackbar Snackbar
 
 <MudText Typo="Typo.h4" Class="mb-4">Configuration</MudText>
+
+@if (_symbols.Count == 0)
+{
+    <MudAlert Severity="Severity.Warning">
+        No price data is available. Add data on the Data page first.
+    </MudAlert>
+    return;
+}
 
 <MudPaper Class="pa-4">
     <MudGrid>
@@ -19,20 +29,30 @@
         </MudItem>
         <MudItem xs="12" sm="6">
             <MudSelect T="string" Label="Timeframe" @bind-Value="_timeframe"
-                       HelperText="Weekly is not available yet.">
-                <MudSelectItem T="string" Value="@("Daily")">Daily</MudSelectItem>
-                <MudSelectItem T="string" Value="@("Weekly")" Disabled="true">Weekly (not available yet)</MudSelectItem>
+                       HelperText="Periods are counted in days (Daily) or in weeks (Weekly).">
+                <MudSelectItem T="string" Value="@Timeframes.Daily">Daily</MudSelectItem>
+                <MudSelectItem T="string" Value="@Timeframes.Weekly">Weekly</MudSelectItem>
             </MudSelect>
         </MudItem>
 
         <MudItem xs="12" sm="@(Strategy.IsPair ? 6 : 12)">
-            <MudTextField Label="@(Strategy.IsPair ? "Symbol A (e.g. AAPL)" : "Symbol (e.g. AAPL)")"
-                          @bind-Value="_symbol" />
+            <MudSelect T="string" Label="@(Strategy.IsPair ? "Symbol A" : "Symbol")"
+                       Value="_symbol" ValueChanged="OnSymbolChanged">
+                @foreach (var s in _symbols)
+                {
+                    <MudSelectItem T="string" Value="@s.Symbol">@s.Symbol</MudSelectItem>
+                }
+            </MudSelect>
         </MudItem>
         @if (Strategy.IsPair)
         {
             <MudItem xs="12" sm="6">
-                <MudTextField Label="Symbol B (e.g. MSFT)" @bind-Value="_symbolB" />
+                <MudSelect T="string" Label="Symbol B" @bind-Value="_symbolB">
+                    @foreach (var s in _symbols)
+                    {
+                        <MudSelectItem T="string" Value="@s.Symbol">@s.Symbol</MudSelectItem>
+                    }
+                </MudSelect>
             </MudItem>
         }
 
@@ -91,20 +111,56 @@
 
 @code {
     private string _strategyId = StrategyCatalog.All[0].Id;
-    private string _timeframe = "Daily";
-    private string _symbol = "AAPL";
-    private string _symbolB = "MSFT";
+    private string _timeframe = Timeframes.Daily;
+    private List<CacheSummary> _symbols = new();
+    private string _symbol = "";
+    private string _symbolB = "";
     private decimal _capital = 10000;
     private decimal _fees = 0.1m;
     private decimal _stopLoss = 0;
-    private DateTime? _start = new DateTime(2023, 1, 1);
-    private DateTime? _end = new DateTime(2024, 1, 1);
+    private DateTime? _start;
+    private DateTime? _end;
     private Dictionary<string, decimal> _params = new();
     private bool _loading;
 
     private StrategyDefinition Strategy => StrategyCatalog.Get(_strategyId);
 
-    protected override void OnInitialized() => ResetParams();
+    protected override void OnInitialized()
+    {
+        ResetParams();
+
+        _symbols = Market.GetCacheSummaries();
+        if (_symbols.Count == 0) return;
+
+        // AAPL / MSFT when available, otherwise the first symbols of the list
+        _symbol = Pick("AAPL", 0);
+        _symbolB = Pick("MSFT", _symbols.Count > 1 ? 1 : 0);
+        SetDefaultPeriod();
+    }
+
+    private string Pick(string preferred, int fallbackIndex) =>
+        _symbols.Any(s => s.Symbol == preferred) ? preferred : _symbols[fallbackIndex].Symbol;
+
+    private void OnSymbolChanged(string symbol)
+    {
+        _symbol = symbol;
+        SetDefaultPeriod();
+    }
+
+    // 2023 by default, moved inside the data of the chosen symbol if needed
+    private void SetDefaultPeriod()
+    {
+        var data = _symbols.First(s => s.Symbol == _symbol);
+        var start = new DateTime(2023, 1, 1);
+        var end = new DateTime(2024, 1, 1);
+        if (start < data.FirstDate || end > data.LastDate)
+        {
+            end = data.LastDate.Date;
+            start = end.AddYears(-1) < data.FirstDate ? data.FirstDate.Date : end.AddYears(-1);
+        }
+        _start = start;
+        _end = end;
+    }
 
     private void OnStrategyChanged(string id)
     {
@@ -165,7 +221,7 @@
             var request = new BacktestRequest(
                 _strategyId, _symbol.Trim().ToUpperInvariant(),
                 Strategy.IsPair ? _symbolB.Trim().ToUpperInvariant() : null,
-                _start!.Value, _end!.Value,
+                _timeframe, _start!.Value, _end!.Value,
                 _capital, _fees, Strategy.SupportsStopLoss ? _stopLoss : 0,
                 new Dictionary<string, decimal>(_params));
 

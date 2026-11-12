@@ -1,11 +1,20 @@
+using System.Globalization;
+using BackTester.Core.Engine;
+using BackTester.Core.Reporting;
 using BackTester.Web.Data;
 
 namespace BackTester.Web.Services;
 
+public static class Timeframes
+{
+    public const string Daily = "Daily";
+    public const string Weekly = "Weekly";
+}
+
 // Fees and stop-loss are percentages here (0.1 = 0.1 %); SymbolB is only for pair strategies
 public record BacktestRequest(
     string StrategyId, string Symbol, string? SymbolB,
-    DateTime Start, DateTime End,
+    string Timeframe, DateTime Start, DateTime End,
     decimal InitialCapital, decimal FeesPercent, decimal StopLossPercent,
     IReadOnlyDictionary<string, decimal> Params);
 
@@ -26,7 +35,8 @@ public record BacktestOutput(
     decimal Sharpe,
     decimal? BuyAndHoldReturn,
     decimal FinalCapital,
-    decimal[] Prices) // closing prices of the (first) symbol on the period
+    decimal[] Prices, // closing prices of the (first) symbol on the period
+    PerformanceReport? Report) // engine report (null for pair trading); its curve matches Dates
 {
     public int TradeCount => Trades.Count;
 }
@@ -35,7 +45,7 @@ public record BacktestOutput(
 public record StrategySelection(string StrategyId, IReadOnlyDictionary<string, decimal> Params);
 
 public record ComparisonRequest(
-    string Symbol, DateTime Start, DateTime End,
+    string Symbol, string Timeframe, DateTime Start, DateTime End,
     decimal InitialCapital, decimal FeesPercent, decimal StopLossPercent,
     IReadOnlyList<StrategySelection> Strategies);
 
@@ -81,7 +91,7 @@ public class BacktestService(MarketDataService market)
         for (var i = 0; i < definitions.Count; i++)
         {
             var one = new BacktestRequest(
-                definitions[i].Id, req.Symbol, null, req.Start, req.End,
+                definitions[i].Id, req.Symbol, null, req.Timeframe, req.Start, req.End,
                 req.InitialCapital, req.FeesPercent, req.StopLossPercent, req.Strategies[i].Params);
             results.Add(Execute(definitions[i], one, series, null));
         }
@@ -100,7 +110,7 @@ public class BacktestService(MarketDataService market)
         var needed = strategy.MinDays(req.Params);
         if (dates.Length < needed)
             throw new BacktestException(
-                $"Not enough data on this period ({dates.Length} days, at least {needed} needed). " +
+                $"Not enough data on this period ({dates.Length} prices, at least {needed} needed). " +
                 "Widen the dates or reduce the periods.");
 
         var input = new RunInput(
@@ -129,7 +139,7 @@ public class BacktestService(MarketDataService market)
         return new BacktestOutput(
             req, strategy.Name, dates, r.Equity, trades,
             r.CumulativeReturn, r.AverageDailyReturn, r.Volatility, r.MaxDrawdown, r.Sharpe,
-            buyAndHold, r.Equity[^1], closesA);
+            buyAndHold, r.Equity[^1], closesA, r.Report);
     }
 
     private static void CheckCommon(
@@ -160,7 +170,9 @@ public class BacktestService(MarketDataService market)
             var idx = Enumerable.Range(0, a.Dates.Length)
                 .Where(i => a.Dates[i] >= from && a.Dates[i] <= to)
                 .ToArray();
-            return (idx.Select(i => a.Dates[i]).ToArray(), idx.Select(i => a.Closes[i]).ToArray(), null);
+            var days = idx.Select(i => a.Dates[i]).ToArray();
+            var closes = idx.Select(i => a.Closes[i]).ToArray();
+            return req.Timeframe == Timeframes.Weekly ? ToWeekly(days, closes, null) : (days, closes, null);
         }
 
         var priceB = new Dictionary<DateTime, decimal>();
@@ -177,7 +189,56 @@ public class BacktestService(MarketDataService market)
             closesA.Add(a.Closes[i]);
             closesB.Add(pb);
         }
-        return (dates.ToArray(), closesA.ToArray(), closesB.ToArray());
+        return req.Timeframe == Timeframes.Weekly
+            ? ToWeekly(dates.ToArray(), closesA.ToArray(), closesB.ToArray())
+            : (dates.ToArray(), closesA.ToArray(), closesB.ToArray());
+    }
+
+    // Weekly timeframe: keeps one close per week (the last trading day of each week)
+    private static (DateTime[] Dates, decimal[] A, decimal[]? B) ToWeekly(
+        DateTime[] dates, decimal[] a, decimal[]? b)
+    {
+        static DateTime WeekStart(DateTime d) => d.Date.AddDays(-(((int)d.DayOfWeek + 6) % 7));
+
+        var keep = Enumerable.Range(0, dates.Length)
+            .Where(i => i == dates.Length - 1 || WeekStart(dates[i + 1]) != WeekStart(dates[i]))
+            .ToArray();
+        return (keep.Select(i => dates[i]).ToArray(),
+                keep.Select(i => a[i]).ToArray(),
+                b is null ? null : keep.Select(i => b[i]).ToArray());
+    }
+
+    // Builds the PDF of a single-symbol result; the file name looks like backtest_AAPL_Breakout.pdf
+    public (byte[] Content, string FileName) CreatePdf(BacktestOutput result)
+    {
+        if (result.Report is null)
+            throw new BacktestException("The PDF report is not available for this strategy.");
+
+        var definition = StrategyCatalog.Get(result.Request.StrategyId);
+        var info = new ReportInfo
+        {
+            StrategyName = definition.Name,
+            Symbol = result.Request.Symbol,
+            InitialCapital = result.Request.InitialCapital,
+            FeeRate = result.Request.FeesPercent / 100m,
+            StopLossRate = definition.SupportsStopLoss ? result.Request.StopLossPercent / 100m : 0m,
+        };
+        info.Parameters.Add(new("Timeframe", result.Request.Timeframe));
+        foreach (var p in definition.Params)
+            info.Parameters.Add(new(p.Label, result.Request.Params[p.Key].ToString("0.##", CultureInfo.InvariantCulture)));
+
+        byte[] content;
+        try
+        {
+            content = new ReportGenerator().Generate(info, result.Report, result.Dates);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            throw new BacktestException("The PDF report could not be generated: " + ex.Message);
+        }
+
+        var name = new string(definition.Name.Where(char.IsLetterOrDigit).ToArray());
+        return (content, $"backtest_{result.Request.Symbol}_{name}.pdf");
     }
 
     // Downloads one symbol and turns every technical error into a clear message

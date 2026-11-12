@@ -1,16 +1,38 @@
 @page "/comparison"
 @using ApexCharts
 @using BackTester.Core.Engine
+@using BackTester.Web.Data
 @using BackTester.Web.Services
 @inject BacktestService Backtests
+@inject MarketDataService Market
 @inject ISnackbar Snackbar
 
 <MudText Typo="Typo.h4" Class="mb-4">Comparison</MudText>
 
+@if (_symbols.Count == 0)
+{
+    <MudAlert Severity="Severity.Warning">
+        No price data is available. Add data on the Data page first.
+    </MudAlert>
+    return;
+}
+
 <MudPaper Class="pa-4 mb-4">
     <MudGrid>
         <MudItem xs="12" sm="4">
-            <MudTextField Label="Symbol (e.g. AAPL)" @bind-Value="_symbol" />
+            <MudSelect T="string" Label="Symbol" Value="_symbol" ValueChanged="OnSymbolChanged">
+                @foreach (var s in _symbols)
+                {
+                    <MudSelectItem T="string" Value="@s.Symbol">@s.Symbol</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudSelect T="string" Label="Timeframe" @bind-Value="_timeframe"
+                       HelperText="Periods are counted in days (Daily) or in weeks (Weekly).">
+                <MudSelectItem T="string" Value="@Timeframes.Daily">Daily</MudSelectItem>
+                <MudSelectItem T="string" Value="@Timeframes.Weekly">Weekly</MudSelectItem>
+            </MudSelect>
         </MudItem>
         <MudItem xs="12" sm="4">
             <MudDatePicker Label="Start date" @bind-Date="_start" />
@@ -30,7 +52,10 @@
     </MudGrid>
 
     <MudText Typo="Typo.subtitle1" Class="mt-4">Strategies to compare</MudText>
-    <MudText Typo="Typo.caption">Pair Trading needs two symbols, so it is not part of this comparison.</MudText>
+    <MudText Typo="Typo.caption">
+        Pair Trading needs two symbols, so it is not part of this comparison. Buy & Hold is always shown as the
+        reference. The stop-loss does not apply to DCA.
+    </MudText>
 
     @foreach (var s in Strategies)
     {
@@ -123,16 +148,19 @@ else
         decimal MaxDrawdown, decimal Sharpe, int Trades, decimal FinalCapital);
     private record Line(string Name, List<ChartPoint> Points);
 
-    private string _symbol = "AAPL";
-    private DateTime? _start = new DateTime(2023, 1, 1);
-    private DateTime? _end = new DateTime(2024, 1, 1);
+    private List<CacheSummary> _symbols = new();
+    private string _symbol = "";
+    private string _timeframe = Timeframes.Daily;
+    private DateTime? _start;
+    private DateTime? _end;
     private decimal _capital = 10000;
     private decimal _fees = 0.1m;
     private decimal _stopLoss = 0;
     private bool _loading;
 
-    // Strategies that work on a single symbol
-    private static IEnumerable<StrategyDefinition> Strategies => StrategyCatalog.All.Where(s => !s.IsPair);
+    // Single-symbol strategies; Buy & Hold is already added as the reference line
+    private static IEnumerable<StrategyDefinition> Strategies =>
+        StrategyCatalog.All.Where(s => !s.IsPair && s.Id != "buyhold");
 
     private readonly HashSet<string> _selected = new();
     private readonly Dictionary<string, Dictionary<string, decimal>> _params = new();
@@ -149,9 +177,37 @@ else
 
     protected override void OnInitialized()
     {
+        _symbols = Market.GetCacheSummaries();
+        if (_symbols.Count > 0)
+        {
+            _symbol = _symbols.Any(s => s.Symbol == "AAPL") ? "AAPL" : _symbols[0].Symbol;
+            SetDefaultPeriod();
+        }
+
         foreach (var s in Strategies)
             _params[s.Id] = s.Params.ToDictionary(p => p.Key, p => p.Default);
         _selected.Add(Strategies.First().Id);
+    }
+
+    private void OnSymbolChanged(string symbol)
+    {
+        _symbol = symbol;
+        SetDefaultPeriod();
+    }
+
+    // 2023 by default, moved inside the data of the chosen symbol if needed
+    private void SetDefaultPeriod()
+    {
+        var data = _symbols.First(s => s.Symbol == _symbol);
+        var start = new DateTime(2023, 1, 1);
+        var end = new DateTime(2024, 1, 1);
+        if (start < data.FirstDate || end > data.LastDate)
+        {
+            end = data.LastDate.Date;
+            start = end.AddYears(-1) < data.FirstDate ? data.FirstDate.Date : end.AddYears(-1);
+        }
+        _start = start;
+        _end = end;
     }
 
     private void Toggle(string id, bool on)
@@ -205,7 +261,7 @@ else
         try
         {
             var request = new ComparisonRequest(
-                _symbol.Trim().ToUpperInvariant(), _start!.Value, _end!.Value,
+                _symbol.Trim().ToUpperInvariant(), _timeframe, _start!.Value, _end!.Value,
                 _capital, _fees, _stopLoss,
                 Strategies.Where(s => _selected.Contains(s.Id))
                     .Select(s => new StrategySelection(s.Id, new Dictionary<string, decimal>(_params[s.Id])))

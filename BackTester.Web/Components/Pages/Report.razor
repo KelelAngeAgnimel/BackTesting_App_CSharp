@@ -1,6 +1,9 @@
 @page "/report"
 @using BackTester.Web.Services
 @inject BacktestState State
+@inject BacktestService Backtests
+@inject IJSRuntime Js
+@inject ISnackbar Snackbar
 
 <MudText Typo="Typo.h4" Class="mb-4">Report</MudText>
 
@@ -28,15 +31,56 @@ else
         </MudSimpleTable>
     </MudPaper>
 
-    @* The PDF generation is not available yet: the button stays disabled *@
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="true">Download report (PDF)</MudButton>
-    <MudText Typo="Typo.caption" Class="ms-2">PDF report coming soon.</MudText>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+               Disabled="@(_isPair || _loading)" OnClick="DownloadAsync">
+        @if (_loading)
+        {
+            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+            <span>Generating...</span>
+        }
+        else
+        {
+            <span>Download PDF report</span>
+        }
+    </MudButton>
+    @if (_isPair)
+    {
+        <MudText Typo="Typo.caption" Class="ms-2">PDF report is not available for pair trading yet</MudText>
+    }
 }
 
 @code {
     private BacktestOutput? _result;
+    private bool _isPair;
+    private bool _loading;
 
-    protected override void OnInitialized() => _result = State.Last;
+    protected override void OnInitialized()
+    {
+        _result = State.Last;
+        _isPair = _result?.Report is null;
+    }
+
+    private async Task DownloadAsync()
+    {
+        _loading = true;
+        try
+        {
+            var (content, fileName) = Backtests.CreatePdf(_result!);
+            await Js.InvokeVoidAsync("downloadFile", fileName, "application/pdf", Convert.ToBase64String(content));
+        }
+        catch (BacktestException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        catch (Exception)
+        {
+            Snackbar.Add("The PDF report could not be downloaded. Please try again.", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
 
     // Ratios are fractions: 0.05 is shown as 5.00 %
     private static string Pct(decimal v) => (v * 100).ToString("F2") + " %";
@@ -53,9 +97,14 @@ else
             yield return ("Period", $"{r.Dates[0]:yyyy-MM-dd} to {r.Dates[^1]:yyyy-MM-dd}");
             yield return ("Initial capital", r.Request.InitialCapital.ToString("F2"));
             yield return ("Fees", r.Request.FeesPercent.ToString("0.##") + " %");
+            yield return ("Timeframe", r.Request.Timeframe);
             if (!isPair)
-                yield return ("Stop-loss", r.Request.StopLossPercent == 0
-                    ? "none" : r.Request.StopLossPercent.ToString("0.##") + " %");
+            {
+                var stopLoss = r.Request.StopLossPercent == 0
+                    ? "none" : r.Request.StopLossPercent.ToString("0.##") + " %";
+                yield return ("Stop-loss", StrategyCatalog.Get(r.Request.StrategyId).SupportsStopLoss
+                    ? stopLoss : "not applicable");
+            }
 
             foreach (var p in StrategyCatalog.Get(r.Request.StrategyId).Params)
                 yield return (p.Label, r.Request.Params[p.Key].ToString("0.##"));

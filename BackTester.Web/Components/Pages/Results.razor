@@ -15,6 +15,13 @@
 else
 {
     <MudText Typo="Typo.subtitle1" Class="mb-3">@_subtitle</MudText>
+    @if (_result.Request.Timeframe == Timeframes.Weekly)
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-3">
+            Weekly timeframe: one close per week is used, so periods (moving averages, lookback...) are in weeks.
+            The volatility and the Sharpe ratio are not re-annualized, and "daily" figures are per week.
+        </MudAlert>
+    }
 
     <MudGrid Class="mb-4">
         @foreach (var card in Cards)
@@ -121,7 +128,7 @@ else
         var symbols = _isPair
             ? $"{_result.Request.Symbol} / {_result.Request.SymbolB}"
             : _result.Request.Symbol;
-        _subtitle = $"{_result.StrategyName} on {symbols}, " +
+        _subtitle = $"{_result.StrategyName} on {symbols} ({_result.Request.Timeframe}), " +
                     $"from {_result.Dates[0]:yyyy-MM-dd} to {_result.Dates[^1]:yyyy-MM-dd}";
     }
 
