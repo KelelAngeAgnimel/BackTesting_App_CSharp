@@ -18,6 +18,9 @@ public class ReportInfo
     public decimal FeeRate { get; set; }
     public decimal StopLossRate { get; set; }
 
+    // Weekly timeframe: one point per week, figures are per week and not annualized
+    public bool IsWeekly { get; set; }
+
     // Strategy parameters as name/value pairs, for example ("lookback", "20")
     public List<KeyValuePair<string, string>> Parameters { get; set; } = new();
 }
@@ -67,7 +70,7 @@ public class ReportGenerator
                         table.ColumnsDefinition(c => { c.RelativeColumn(2); c.RelativeColumn(1); });
 
                         AddRow(table, "Symbol", info.Symbol);
-                        AddRow(table, "Period", $"{dates[0]:yyyy-MM-dd} to {dates[^1]:yyyy-MM-dd} ({dates.Length} days)");
+                        AddRow(table, "Period", $"{dates[0]:yyyy-MM-dd} to {dates[^1]:yyyy-MM-dd} ({dates.Length} {(info.IsWeekly ? "weeks" : "days")})");
                         AddRow(table, "Initial capital", Money(info.InitialCapital));
                         AddRow(table, "Fee rate", Percent(info.FeeRate));
                         AddRow(table, "Stop-loss", info.StopLossRate > 0 ? Percent(info.StopLossRate) : "disabled");
@@ -83,10 +86,10 @@ public class ReportGenerator
 
                         AddRow(table, "Final portfolio value", Money(finalValue));
                         AddRow(table, "Cumulative return", Percent(Convert.ToDecimal(report.CumulativeReturn)));
-                        AddRow(table, "Average daily return", Percent(Convert.ToDecimal(report.AverageDailyReturn)));
-                        AddRow(table, "Volatility", Percent(Convert.ToDecimal(report.Volatility)));
+                        AddRow(table, info.IsWeekly ? "Average weekly return" : "Average daily return", Percent(Convert.ToDecimal(report.AverageDailyReturn)));
+                        AddRow(table, info.IsWeekly ? "Volatility (per week)" : "Volatility", Percent(Convert.ToDecimal(report.Volatility)));
                         AddRow(table, "Maximum drawdown", Percent(Convert.ToDecimal(report.MaxDrawdown)));
-                        AddRow(table, "Sharpe ratio", Convert.ToDecimal(report.SharpeRatio).ToString("F2", CultureInfo.InvariantCulture));
+                        AddRow(table, info.IsWeekly ? "Sharpe ratio (not annualized)" : "Sharpe ratio", Convert.ToDecimal(report.SharpeRatio).ToString("F2", CultureInfo.InvariantCulture));
                         AddRow(table, "Number of trades", report.Trades.Count.ToString(CultureInfo.InvariantCulture));
                     });
 

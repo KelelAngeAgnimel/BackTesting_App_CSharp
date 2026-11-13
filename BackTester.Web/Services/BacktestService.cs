@@ -11,6 +11,17 @@ public static class Timeframes
     public const string Weekly = "Weekly";
 }
 
+// Metric labels that follow the timeframe (Weekly figures are per week and not annualized)
+public static class MetricLabels
+{
+    public static string AverageReturn(string timeframe) =>
+        timeframe == Timeframes.Weekly ? "Average weekly return" : "Average daily return";
+    public static string Volatility(string timeframe) =>
+        timeframe == Timeframes.Weekly ? "Volatility (per week)" : "Volatility (daily)";
+    public static string Sharpe(string timeframe) =>
+        timeframe == Timeframes.Weekly ? "Sharpe ratio (not annualized)" : "Sharpe ratio (annualized)";
+}
+
 // Fees and stop-loss are percentages here (0.1 = 0.1 %); SymbolB is only for pair strategies
 public record BacktestRequest(
     string StrategyId, string Symbol, string? SymbolB,
@@ -222,6 +233,7 @@ public class BacktestService(MarketDataService market)
             InitialCapital = result.Request.InitialCapital,
             FeeRate = result.Request.FeesPercent / 100m,
             StopLossRate = definition.SupportsStopLoss ? result.Request.StopLossPercent / 100m : 0m,
+            IsWeekly = result.Request.Timeframe == Timeframes.Weekly,
         };
         info.Parameters.Add(new("Timeframe", result.Request.Timeframe));
         foreach (var p in definition.Params)

@@ -107,20 +107,20 @@ else
         <HeaderContent>
             <MudTh>Strategy</MudTh>
             <MudTh>Cumulative return</MudTh>
-            <MudTh>Avg daily return</MudTh>
-            <MudTh>Volatility (daily)</MudTh>
+            <MudTh>@(_weekly ? "Avg weekly return" : "Avg daily return")</MudTh>
+            <MudTh>@(_weekly ? "Volatility (per week)" : "Volatility (daily)")</MudTh>
             <MudTh>Max drawdown</MudTh>
-            <MudTh>Sharpe (annualized)</MudTh>
+            <MudTh>@(_weekly ? "Sharpe (not annualized)" : "Sharpe (annualized)")</MudTh>
             <MudTh>Trades</MudTh>
             <MudTh>Final capital</MudTh>
         </HeaderContent>
         <RowTemplate>
             <MudTd DataLabel="Strategy">@context.Name</MudTd>
             <MudTd DataLabel="Cumulative return">@Pct(context.Cumulative)</MudTd>
-            <MudTd DataLabel="Avg daily return">@Pct(context.AverageDaily)</MudTd>
-            <MudTd DataLabel="Volatility (daily)">@Pct(context.Volatility)</MudTd>
+            <MudTd DataLabel="@(_weekly ? "Avg weekly return" : "Avg daily return")">@Pct(context.AverageDaily)</MudTd>
+            <MudTd DataLabel="@(_weekly ? "Volatility (per week)" : "Volatility (daily)")">@Pct(context.Volatility)</MudTd>
             <MudTd DataLabel="Max drawdown">@Pct(context.MaxDrawdown)</MudTd>
-            <MudTd DataLabel="Sharpe (annualized)">@context.Sharpe.ToString("F2")</MudTd>
+            <MudTd DataLabel="@(_weekly ? "Sharpe (not annualized)" : "Sharpe (annualized)")">@context.Sharpe.ToString("F2")</MudTd>
             <MudTd DataLabel="Trades">@context.Trades</MudTd>
             <MudTd DataLabel="Final capital">@context.FinalCapital.ToString("F2")</MudTd>
         </RowTemplate>
@@ -168,6 +168,7 @@ else
     private List<Row> _rows = new();
     private List<Line> _lines = new();
     private string _subtitle = "";
+    private bool _weekly; // timeframe of the displayed result (not the form value)
     private int _chartKey;
 
     private readonly ApexChartOptions<ChartPoint> _options = new()
@@ -305,6 +306,7 @@ else
             PerformanceMetrics.SharpeRatio(holdCurve), 1, holdCurve[^1]));
         lines.Add(new Line("Buy & Hold", Normalize(first.Dates, holdCurve)));
 
+        _weekly = first.Request.Timeframe == Timeframes.Weekly;
         _rows = rows;
         _lines = lines;
         _subtitle = $"{first.Request.Symbol}, from {first.Dates[0]:yyyy-MM-dd} to {first.Dates[^1]:yyyy-MM-dd}";

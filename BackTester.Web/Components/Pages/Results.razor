@@ -138,10 +138,10 @@ else
     private IEnumerable<(string Label, string Value)> Cards => new[]
     {
         ("Cumulative return", Pct(_result!.CumulativeReturn)),
-        ("Average daily return", Pct(_result.AverageDailyReturn)),
-        ("Volatility (daily)", Pct(_result.Volatility)),
+        (MetricLabels.AverageReturn(_result.Request.Timeframe), Pct(_result.AverageDailyReturn)),
+        (MetricLabels.Volatility(_result.Request.Timeframe), Pct(_result.Volatility)),
         ("Max drawdown", Pct(_result.MaxDrawdown)),
-        ("Sharpe ratio (annualized)", _result.Sharpe.ToString("F2")),
+        (MetricLabels.Sharpe(_result.Request.Timeframe), _result.Sharpe.ToString("F2")),
         ("Number of trades", _result.TradeCount.ToString()),
         ("Buy & Hold return", _result.BuyAndHoldReturn is { } bh ? Pct(bh) : "n/a"),
         ("Final capital", _result.FinalCapital.ToString("F2")),

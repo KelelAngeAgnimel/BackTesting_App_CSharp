@@ -110,10 +110,10 @@ else
                 yield return (p.Label, r.Request.Params[p.Key].ToString("0.##"));
 
             yield return ("Cumulative return", Pct(r.CumulativeReturn));
-            yield return ("Average daily return", Pct(r.AverageDailyReturn));
-            yield return ("Volatility (daily)", Pct(r.Volatility));
+            yield return (MetricLabels.AverageReturn(r.Request.Timeframe), Pct(r.AverageDailyReturn));
+            yield return (MetricLabels.Volatility(r.Request.Timeframe), Pct(r.Volatility));
             yield return ("Max drawdown", Pct(r.MaxDrawdown));
-            yield return ("Sharpe ratio (annualized)", r.Sharpe.ToString("F2"));
+            yield return (MetricLabels.Sharpe(r.Request.Timeframe), r.Sharpe.ToString("F2"));
             yield return ("Number of trades", r.TradeCount.ToString());
             yield return ("Buy & Hold return", r.BuyAndHoldReturn is { } bh ? Pct(bh) : "n/a");
             yield return ("Final capital", r.FinalCapital.ToString("F2"));
