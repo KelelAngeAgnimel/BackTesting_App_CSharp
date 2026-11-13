@@ -242,7 +242,7 @@ public class BacktestService(MarketDataService market)
         byte[] content;
         try
         {
-            content = new ReportGenerator().Generate(info, result.Report, result.Dates);
+            content = new ReportGenerator().Generate(info, result.Report, result.Dates, includeCharts: true);
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {

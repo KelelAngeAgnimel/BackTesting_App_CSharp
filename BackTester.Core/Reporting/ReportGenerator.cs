@@ -31,8 +31,10 @@ public class ReportGenerator
     private const int MaxTradeRows = 500;
 
     // dates: one date per price, aligned with report.EquityCurve
-    // chartImage: optional PNG of the equity curve (can be added later)
-    public byte[] Generate(ReportInfo info, PerformanceReport report, DateTime[] dates, byte[]? chartImage = null)
+    // chartImage: optional PNG of the equity curve
+    // includeCharts: draws the equity curve and the drawdown curve (SVG) from the report and the dates
+    public byte[] Generate(ReportInfo info, PerformanceReport report, DateTime[] dates, byte[]? chartImage = null,
+        bool includeCharts = false)
     {
         if (report == null || report.EquityCurve == null || report.EquityCurve.Length == 0)
             throw new ArgumentException("The report has no equity curve.");
@@ -93,11 +95,22 @@ public class ReportGenerator
                         AddRow(table, "Number of trades", report.Trades.Count.ToString(CultureInfo.InvariantCulture));
                     });
 
-                    // 3. Equity curve (only if an image was given)
+                    // 3. Equity curve (only if an image was given or the charts were asked for)
                     if (chartImage != null)
                     {
                         col.Item().Text("Portfolio value over time").FontSize(14).Bold();
                         col.Item().Image(chartImage);
+                    }
+                    if (includeCharts)
+                    {
+                        col.Item().Text("Portfolio value over time").FontSize(14).Bold();
+                        col.Item().Element(c => AddChart(c, ChartSvg.Line(report.EquityCurve, "#1565c0", false),
+                            dates, Money(report.EquityCurve.Min()), Money(report.EquityCurve.Max())));
+
+                        var drawdown = ChartSvg.DrawdownSeries(report.EquityCurve);
+                        col.Item().Text("Drawdown").FontSize(14).Bold();
+                        col.Item().Element(c => AddChart(c, ChartSvg.Line(drawdown, "#c62828", true),
+                            dates, Percent(drawdown.Min()), Percent(drawdown.Max())));
                     }
 
                     // 4. Trades
@@ -157,6 +170,30 @@ public class ReportGenerator
         });
 
         return document.GeneratePdf();
+    }
+
+    // Chart (SVG) with the min/max values on the left and the first/middle/last dates below
+    private static void AddChart(IContainer container, string svg, DateTime[] dates, string minLabel, string maxLabel)
+    {
+        container.Column(col =>
+        {
+            col.Item().Row(row =>
+            {
+                row.ConstantItem(55).Height(ChartSvg.Height * 0.8f).Layers(l =>
+                {
+                    l.PrimaryLayer();
+                    l.Layer().AlignTop().AlignRight().PaddingRight(4).Text(maxLabel).FontSize(7);
+                    l.Layer().AlignBottom().AlignRight().PaddingRight(4).Text(minLabel).FontSize(7);
+                });
+                row.RelativeItem().Height(ChartSvg.Height * 0.8f).Svg(svg);
+            });
+            col.Item().PaddingLeft(55).Row(row =>
+            {
+                row.RelativeItem().AlignLeft().Text(dates[0].ToString("yyyy-MM-dd")).FontSize(7);
+                row.RelativeItem().AlignCenter().Text(dates[dates.Length / 2].ToString("yyyy-MM-dd")).FontSize(7);
+                row.RelativeItem().AlignRight().Text(dates[^1].ToString("yyyy-MM-dd")).FontSize(7);
+            });
+        });
     }
 
     private static void AddRow(TableDescriptor table, string label, string value)
